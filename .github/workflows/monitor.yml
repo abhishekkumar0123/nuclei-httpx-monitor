@@ -1,4 +1,4 @@
-name: Auto Monitoring
+name: nuclei httpx monitoring
 
 on:
   schedule:
