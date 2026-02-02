@@ -30,7 +30,7 @@ jobs:
         run: |
           "$HOME/go/bin/nuclei" -l alive.txt -severity medium,high,critical -o result.txt || true
 
-      - name: Send Telegram Alert (if findings)
+      - name: Send Telegram Alert (only if findings)
         if: success()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -38,10 +38,10 @@ jobs:
         run: |
           if [ -s result.txt ]; then
             MESSAGE="🚨 Nuclei Alert!\n\n$(head -n 20 result.txt)"
-          else
-            MESSAGE="✅ Scan done. No issues found."
-          fi
 
-          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d chat_id="${TELEGRAM_CHAT_ID}" \
-            --data-urlencode text="$MESSAGE"
+            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d chat_id="${TELEGRAM_CHAT_ID}" \
+              --data-urlencode text="$MESSAGE"
+          else
+            echo "No findings, not sending Telegram message."
+          fi
