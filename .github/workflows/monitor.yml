@@ -1,0 +1,44 @@
+name: Auto Monitoring
+
+on:
+  schedule:
+    - cron: '0 * * * *' # har 1 ghante
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt update
+          sudo apt install -y jq
+          go install github.com/projectdiscovery/httpx/cmd/httpx@latest
+          go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+
+      - name: Run httpx
+        run: |
+          echo "zerobounce.net" > targets.txt
+          httpx -l targets.txt -silent -o alive.txt
+
+      - name: Run nuclei
+        run: |
+          nuclei -l alive.txt -severity medium,high,critical -o result.txt || true
+
+      - name: Send Telegram Alert (if findings)
+        if: success()
+        run: |
+          if [ -s result.txt ]; then
+            MESSAGE="🚨 Nuclei Alert!\n\n$(cat result.txt | head -n 20)"
+          else
+            MESSAGE="✅ Scan done. No issues found."
+          fi
+
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+          -d text="$MESSAGE"
