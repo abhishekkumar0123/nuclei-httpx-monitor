@@ -21,15 +21,36 @@ jobs:
           go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
           echo "$HOME/go/bin" >> $GITHUB_PATH
 
-      - name: Run httpx
+      - name: Prepare Real Target File
         run: |
-          mkdir -p data
-          echo "zerobounce.net" > targets.txt
-          httpx -l targets.txt -silent -o alive.txt
+          # Check if the targets.txt file already exists, if not create it
+          if [ ! -f targets.txt ]; then
+            echo "zerobounce.net" > targets.txt
+            echo "Created targets.txt with real target."
+          else
+            echo "targets.txt already exists, skipping creation."
+          fi
 
-      - name: Run nuclei
+      - name: Run httpx (alive check)
         run: |
-          nuclei -l alive.txt -severity medium,high,critical -silent -o nuclei_new.txt || true
+          # Check if alive.txt already exists, if not create it by running httpx
+          if [ ! -f alive.txt ]; then
+            mkdir -p data
+            httpx -l targets.txt -silent -o alive.txt
+            echo "Created alive.txt with HTTPX results."
+          else
+            echo "alive.txt already exists, skipping HTTPX scan."
+          fi
+
+      - name: Run nuclei (vulnerability scanning)
+        run: |
+          # Check if nuclei_new.txt already exists, if not run nuclei scan
+          if [ ! -f nuclei_new.txt ]; then
+            nuclei -l alive.txt -severity medium,high,critical -silent -o nuclei_new.txt || true
+            echo "Created nuclei_new.txt with Nuclei results."
+          else
+            echo "nuclei_new.txt already exists, skipping Nuclei scan."
+          fi
 
       - name: Compare & Telegram Alert
         env:
@@ -39,28 +60,28 @@ jobs:
           mkdir -p data
           touch data/nuclei_old.txt
 
-          # Get new findings from nuclei
+          # Get new findings from nuclei by comparing old and new scan results
           NEW_DIFF=$(comm -13 <(sort data/nuclei_old.txt) <(sort nuclei_new.txt))
 
           # Initialize the message
           MSG=""
 
-          # If there are new findings from Nuclei
+          # If there are new findings from Nuclei (real vulnerability data)
           if [ -n "$NEW_DIFF" ]; then
-            MSG="🚨 *Nuclei Monitoring Alert*\n\n$NEW_DIFF"
+            MSG="🚨 *Nuclei Monitoring Alert*\n\n*New Vulnerabilities Detected:*\n\n$NEW_DIFF"
           fi
 
-          # If there are alive targets from HTTPX
+          # If there are alive targets from HTTPX (real target URLs)
           if [ -f alive.txt ] && [ -s alive.txt ]; then
             httpx_results=$(cat alive.txt)
             if [ -n "$MSG" ]; then
-              MSG="$MSG\n\n*HTTPX Monitoring Alert:*\n$httpx_results"
+              MSG="$MSG\n\n*HTTPX Monitoring Alert:*\n\n*Alive Targets Found:*\n$httpx_results"
             else
-              MSG="*HTTPX Monitoring Alert:*\n$httpx_results"
+              MSG="*HTTPX Monitoring Alert:*\n\n*Alive Targets Found:*\n$httpx_results"
             fi
           fi
 
-          # If there are new findings, send a message
+          # If there are findings (either from Nuclei or HTTPX), send the alert message
           if [ -n "$MSG" ]; then
             curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
               -d chat_id="$TELEGRAM_CHAT_ID" \
@@ -74,6 +95,7 @@ jobs:
         run: |
           mkdir -p data
           mv nuclei_new.txt data/nuclei_old.txt
+          echo "Updated nuclei baseline."
 
       - name: Commit updated data
         run: |
@@ -82,6 +104,7 @@ jobs:
           git add data/nuclei_old.txt
           git diff --cached --quiet || git commit -m "auto: update nuclei baseline"
           git push
+
 
 
 
